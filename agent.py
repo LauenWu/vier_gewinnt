@@ -15,7 +15,7 @@ marker = 1
 # the possibility to make a random move
 epsilon = 1
 # decay of epsilon
-decay = .001
+decay = .999
 
 gamma = .95
 
@@ -33,7 +33,7 @@ for _ in range(1000):
         pf_hash = hash(g.playfield.tostring())
 
         available_moves = moves[g.col_available]
-        if available_moves.size ==0:
+        if available_moves.size == 0:
             game_over = True
             continue
 

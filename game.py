@@ -1,5 +1,4 @@
 import numpy as np
-from numba import jit
 
 x = 4
 n = 6
