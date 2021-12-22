@@ -17,7 +17,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--epochs',
         required=False,
-        default=10,
+        default=100,
         type=int,
         help="number of games to play in train mode, ignored in play mode")
     args, _ = parser.parse_known_args()

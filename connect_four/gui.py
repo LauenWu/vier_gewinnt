@@ -5,6 +5,7 @@ from .game import Game
 from .player import HumanPlayer, SmartAgent, RandomAgent
 from .constants import *
 import numpy as np
+import os
 
 class Window(pyglet.window.Window):
 
@@ -42,7 +43,10 @@ class Window(pyglet.window.Window):
                     color=self.colors[0], batch=self.circles_batch
                     )
 
-        self.game = Game(self.human_player, SmartAgent(PolicyNet()))
+        model = PolicyNet()
+        model(np.ones((N,M,3)))
+        model.load_weights(os.path.join('data', 'weights.h5'))
+        self.game = Game(self.human_player, SmartAgent(model))
 
     def on_draw(self):
         self.clear()
@@ -53,8 +57,9 @@ class Window(pyglet.window.Window):
 
         if not self.game.game_over:
             row = self.game.col_height[self.hovered_col]
-            self.circles[self.hovered_col, row].color = self.colors[self.game.marker]
-            self.circles[self.hovered_col, row].opacity = 50
+            if row < N:
+                self.circles[self.hovered_col, row].color = self.colors[self.game.marker]
+                self.circles[self.hovered_col, row].opacity = 50
         
         self.circles_batch.draw()
 

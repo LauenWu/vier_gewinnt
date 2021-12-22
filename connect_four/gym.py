@@ -5,11 +5,12 @@ import os
 import sys
 import numpy as np
 from .constants import *
+import random
 
 
 def train(epochs:int):
     model = PolicyNet()
-    model(np.ones(N*M*3))
+    model(np.ones((N,M,3)))
     try:
         model.load_weights(os.path.join('data', 'weights.h5'))
     except OSError:
@@ -17,9 +18,10 @@ def train(epochs:int):
 
     moves = np.zeros(M)
     for i in range(epochs):
-        epsilon = i*(1-.75)/epochs + .75
-        agent_1 = SmartAgent(model, epsilon)
-        agent_2 = SmartAgent(model, epsilon)
+        #epsilon = i*(1-.75)/epochs + .75
+        #epsilon = i/epochs
+        agent_1 = SmartAgent(model)
+        agent_2 = SmartAgent(model)
         g = Game(agent_1, agent_2)
         g.simulate()
 
@@ -33,18 +35,35 @@ def train(epochs:int):
 
 def benchmark(epochs:int):
     model = PolicyNet()
-    model(np.ones(N*M*3))
+    model(np.ones((N,M,3)))
     model.load_weights(os.path.join('data', 'weights.h5'))
 
+    bm = PolicyNet()
+    bm(np.ones((N,M,3)))
+    bm.load_weights(os.path.join('data', 'weights_benchmark.h5'))
+
     won = 0
+    draw = 0
     for i in range(epochs):
-        rand_agent = RandomAgent()
+        bm_agent = SmartAgent(bm)
         smart_agent = SmartAgent(model)
-        g = Game(rand_agent, smart_agent)
-        result = g.simulate()
-        if result == 1:
-            won += 1
-        sys.stdout.write("\repochs: {:d} \t win rate: {:.2f}".format((i+1), won / (i+1)))
+
+        # ensure the position doesn't play a role
+        if random.random() < .5:
+            g = Game(bm_agent, smart_agent)
+            result = g.simulate()
+            if result == 1:
+                won += 1
+            elif result == 0:
+                draw += 1
+        else:
+            g = Game(smart_agent, bm_agent)
+            result = g.simulate()
+            if result == -1:
+                won += 1
+            elif result == 0:
+                draw += 1
+        sys.stdout.write("\repochs: {:d} \t won: {:.2f} \t drawn: {:.2f}".format((i+1), won / (i+1), draw / (i+1)))
         sys.stdout.flush()
 
 

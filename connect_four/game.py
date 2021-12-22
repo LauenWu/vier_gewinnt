@@ -66,15 +66,24 @@ class Game():
         # used to toggle quickly btw agents
         self.agents = (agent_1, agent_2)
 
-    def simulate(self) -> int:
-        while not self.game_over:
-            res = self.computer_move()
+        # -1: player_1 wins, 1: player_2 wins, 0: draw
+        self.result = 0
 
-        if abs(res) == 1:
-            # a player has won, punish the other player
-            player = self.__current_player()
-            player.rewards[-1] = -5
-        return res
+    def simulate(self) -> int:
+        '''
+        returns: int
+            returns the sign of the winning player (-1 is player_1, 1 is player_2)
+        '''
+        while not self.game_over:
+            self.computer_move()
+
+        if self.result != 0:
+            # punish losing players' last move
+            self.marker = -self.result
+            loser = self.__current_player()
+            loser.rewards[-1] = -5
+
+        return self.result
 
     def human_move(self, j:int):
         if self.game_over:
@@ -85,31 +94,33 @@ class Game():
         player = self.__current_player()
         assert player.human
 
-        res = self.play_col(j)
+        self.play_col(j)
         if self.game_over:
-            return res
+            return
         
         # computer player's move
-        return self.computer_move()
+        self.computer_move()
 
 
     def computer_move(self) -> int:
         player = self.__current_player()
         assert not player.human
+
         state = self.playfield.copy()
         action = player.choose_action(self.playfield)
-        if action in self.get_available_moves():
-            res = self.play_col(action)
-        else:
-            # illegal move
-            res = -5
+        reward = self.play_col(action)
+
+        player.store_transition(state, action, reward)
+
+
+    def play_col(self, j:int):
+        '''returns the immediate reward from this move'''
+        if not (j in self.get_available_moves()):
+            # illegal move, other player wins
             self.game_over = True
+            self.result = -self.marker
+            return -5
 
-        player.store_transition(state, action, res)
-        return res
-
-
-    def play_col(self, j:int) -> int:
         i = self.col_height[j]
         self.playfield[i, j] = self.marker
 
@@ -121,45 +132,47 @@ class Game():
             self.diags_2[x][y] = self.marker
         self.col_height[j] += 1
         self.col_available &= (self.col_height < N)
-        self.marker = -self.marker
-        res = self.check()
 
-        if res == 1:
+        if self.is_won():
             # current player won
             self.game_over = True
-            return res
+            self.result = self.marker
+            return 5
 
         if not max(self.col_available):
             # draw
             self.game_over = True
-            return .5
-        return res
+            return 0
+        
+        self.marker = -self.marker
+        return 0
 
     def get_available_moves(self):
         return MOVES[self.col_available]
 
-    def check(self):
-        '''returns 1 if the game is won, else returns 0'''
-        res = 0
+    def is_won(self):
+        '''returns True if the game is won, else returns False'''
+        won = False
         for i in self.diags_1:
-            if bool(res):
-                return 1
-            res = self.check_array(i)
+            if won:
+                return True
+            won = bool(self.check_array(i))
         for i in self.diags_2:
-            if bool(res):
-                return 1
-            res = self.check_array(i)
+            if won:
+                return True
+            won = bool(self.check_array(i))
         for i in self.playfield:
-            if bool(res):
-                return 1
-            res = self.check_array(i)
+            if won:
+                return True
+            won = bool(self.check_array(i))
         for i in self.playfield.T:
-            if bool(res):
-                return 1
-            res = self.check_array(i)
-        return int(res != 0)
+            if won:
+                return True
+            won = bool(self.check_array(i))
+        return won
 
     def check_array(self, a):
+        '''returns the marker that appears 4 times in a row'''
         last = 0
         count = 1
         for i in a:

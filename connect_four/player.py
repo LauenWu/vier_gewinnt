@@ -3,8 +3,8 @@ import random
 import numpy as np
 from .models import PolicyNet
 from .constants import *
-from tensorflow.math import log
-from tensorflow import matmul, convert_to_tensor, GradientTape, float32, squeeze, expand_dims
+from tensorflow.math import log, is_nan
+from tensorflow import matmul, where, convert_to_tensor, GradientTape, float32, squeeze, expand_dims
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.optimizers import Adam
 import tensorflow_probability as tfp
@@ -40,6 +40,10 @@ class HumanPlayer(Player):
 class RandomAgent(Player):
     def __init__(self):
         super().__init__()
+        self.actions = [0]
+        self.rewards = [0]
+        self.states = [0]
+
 
     def choose_action(self, playfield:np.array) -> int:
         # randomly chooses an available move
@@ -77,31 +81,36 @@ class SmartAgent(Player):
         self.policy_net = policy_net
         self.policy_net.compile(optimizer=Adam())
         self.epsilon = max(1, epsilon)
+
+        # first 2 moves are random
+        self.i = 0
         # try:
         #     self.policy_net.load_weights(os.path.join('data', 'weights.h5'))
         # except OSError:
+        #     pass
         #     self.policy_net.save_weights(os.path.join('data', 'weights.h5'))
 
     def choose_action(self, playfield:np.array) -> int:
         # can choose illegal action
         # ensure that each player sees himself as 1 and the opponent as -1
         available_moves = np.where(playfield==0, True, False).max(0)
-
-        if random.random() < self.epsilon:
+        self.i += 1
+        if random.random() < self.epsilon and self.i > 2:
             state = self.sign * playfield
-            probs = self.policy_net(field_to_categorical(state).flatten())
+            probs = self.policy_net(field_to_categorical(state))
             # setting probs for illegal moves to 0
             # probs = np.where(playfield==0, 1, 1e-100).max(0) * probs
             action_probs = tfp.distributions.Categorical(probs=probs)
             action = action_probs.sample()
-            action = action.numpy()[0]
-            if action in MOVES[available_moves]:
-                return action
+            return action.numpy()[0]
         
         return np.random.choice(MOVES[available_moves])
         
 
     def store_transition(self, playfield:np.array, action:int, reward:float32):
+        if self.i <= 2:
+            return
+
         # ensure that each player sees himself as 1 and the opponent as -1
         state = self.sign * playfield
         self.states.append(state)
@@ -124,7 +133,13 @@ class SmartAgent(Player):
         with GradientTape() as tape:
             loss = 0
             for g, state, action in zip(G, self.states, actions):
-                probs = self.policy_net(field_to_categorical(state).flatten(), training=True)
+                probs = self.policy_net(field_to_categorical(state), training=True)
+                probs = where(probs < 1e-30, 1e-30, probs)
+                # print(probs.numpy().min())
+                # if (probs.numpy() == 0).max():
+                #     print('0', probs)
+                if is_nan(probs).numpy().max():
+                    print('nan', probs)
                 action_probs = tfp.distributions.Categorical(probs=probs)
                 log_prob = action_probs.log_prob(action)
                 loss += -g * squeeze(log_prob)
