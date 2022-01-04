@@ -1,12 +1,13 @@
 from logging import disable
 import random
 import numpy as np
-from .models import PolicyNet
+from .models import PolicyNet, ValueNet
 from .constants import *
-from tensorflow.math import log, is_nan
+from tensorflow.math import log, is_nan, square
 from tensorflow import matmul, where, convert_to_tensor, GradientTape, float32, squeeze, expand_dims
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.losses import MeanSquaredError
 import tensorflow_probability as tfp
 import os
 
@@ -17,7 +18,10 @@ def field_to_categorical(a):
             b[i,j,int(a[i,j])+1] = 1
     return b
 
-GAMMA = .99
+def field_to_categorical_2(a):
+    return np.stack([(a == -1).astype(float), (a == 1).astype(float)], 2)
+
+GAMMA = .75
 
 random.seed(13)
 
@@ -80,15 +84,16 @@ class SmartAgent(Player):
         self.states = []
         self.policy_net = policy_net
         self.policy_net.compile(optimizer=Adam())
-        self.epsilon = max(1, epsilon)
+        self.policy_net(np.ones((N,M,3)))
+        self.epsilon = min(1, epsilon)
 
         # first 2 moves are random
         self.i = 0
-        # try:
-        #     self.policy_net.load_weights(os.path.join('data', 'weights.h5'))
-        # except OSError:
-        #     pass
-        #     self.policy_net.save_weights(os.path.join('data', 'weights.h5'))
+        try:
+            self.policy_net.load_weights(os.path.join('data', 'policy', 'weights.h5'))
+        except OSError:
+            pass
+            self.policy_net.save_weights(os.path.join('data', 'policy', 'weights.h5'))
 
     def choose_action(self, playfield:np.array) -> int:
         # can choose illegal action
@@ -148,40 +153,71 @@ class SmartAgent(Player):
         self.policy_net.optimizer.apply_gradients(zip(grad, self.policy_net.trainable_variables))
         return to_categorical(self.actions, num_classes=M).sum(0)
 
-    #-----------------------------------------      
-    # def loss(self, prob, action, reward):
-    #     # dist = tfp.distributions.Categorical(probs=prob, dtype=tf.float32)
-    #     # log_prob = dist.log_prob(action)
-    #     # loss = -log_prob*reward
-    #     loss = -log(matmul(prob, np.expand_dims(action, 0).T) + 1e-100) * reward
-    #     return loss
+class SmartAgent_2(Player):
+    def __init__(self, value_net:ValueNet, epsilon=1, weights_name='weights.h5', debug=False):
+        super().__init__()
+        self.actions = []
+        self.rewards = []
+        self.states = []
+        self.value_net = value_net
+        self.value_net.compile(optimizer=Adam(), loss=MeanSquaredError())
+        self.value_net(expand_dims(np.ones((N,M,2)), 0))
 
-    # def train(self, states:np.array, actions:np.array, rewards:np.array):
-    #     actions = to_categorical(actions, num_classes=M)
+        self.epsilon = min(1, epsilon)
+        self.debug = debug
 
-    #     for state, action, reward in zip(states, actions, rewards):
-    #         with GradientTape() as tape:
-    #             p = self(state, training=True)
-    #             loss = self.loss(p, action, reward)
-    #         grads = tape.gradient(loss, self.trainable_variables)
-    #         self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
+        # first 2 moves are random
+        # self.i = 0
 
-    # def move(self, game) -> int:
-    #     available = game.get_available_moves()
-    #     assert available.size > 0
+        try:
+            self.value_net.load_weights(os.path.join('data', weights_name))
+        except OSError:
+            print('create new weights')
+            pass
+            self.value_net.save_weights(os.path.join('data', weights_name))
 
-    #     # ensure that each player sees himself as 1 and the opponent as -1
-    #     state = self.sign * game.playfield.copy()
-    #     pred = self.policy_net(state).numpy()[0]
-    #     # mask legal moves
-    #     try:
-    #         pred = np.where(game.col_available, pred, 0)
-    #         if pred.sum() > 0:
-    #             chosen_move = np.random.choice(MOVES, p=pred/pred.sum())
-    #         else:
-    #             chosen_move = np.random.choice(game.get_available_moves())
-    #         self.states.append(state)
-    #         self.actions.append(chosen_move)
-    #         self.immediate_rewards.append(game.play_col(chosen_move))
-    #     except ValueError:
-    #         pass
+    def choose_action(self, playfield:np.array):
+
+        if self.debug:
+            state = self.sign * playfield
+            one_hot_state = field_to_categorical_2(state)
+            value = self.value_net(expand_dims(one_hot_state,0))
+            print('current evaluation', value)
+
+        # can't choose illegal action
+        available_moves = np.where(playfield==0, True, False).max(0)
+        if random.random() < self.epsilon:
+            # ensure that each player sees himself as 1 and the opponent as -1
+            state = self.sign * playfield
+
+            one_hot_state = field_to_categorical_2(state)
+            action_values = -np.ones(M)
+            for action in MOVES[available_moves]:
+                col = state[:,action]
+                row_idx = np.argmin(col != 0)
+                one_hot_state[row_idx, action, 1] = 1
+                action_values[action] = self.value_net(expand_dims(one_hot_state,0))
+                one_hot_state[row_idx, action, 1] = 0
+
+            if self.debug:
+                print(action_values)
+
+            return np.argmax(action_values), False
+        
+        return np.random.choice(MOVES[available_moves]), True
+
+    def learn(self):
+        batch_size = len(self.rewards)
+        self.rewards.reverse()
+        G = []
+        sum_reward = 0
+        for r in self.rewards:
+            sum_reward = r + GAMMA*sum_reward
+            G.append(sum_reward)
+        G.reverse()
+        G = convert_to_tensor(G)
+        states = convert_to_tensor(self.states)
+
+        res = self.value_net.fit(states, G, batch_size=batch_size, epochs=20, verbose=0)
+            
+        return res.history['loss'][-1]

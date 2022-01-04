@@ -44,6 +44,9 @@ diags_2 = [np.zeros(i) for i in diags_dim_2]
 
 playfield = np.zeros((N,M))
 
+def field_to_categorical_2(a):
+    return np.stack([(a == -1).astype(float), (a == 1).astype(float)], 2)
+
 class Game():
     def __init__(self, agent_1:Player, agent_2:Player):
         agent_1.sign = -1
@@ -69,6 +72,12 @@ class Game():
         # -1: player_1 wins, 1: player_2 wins, 0: draw
         self.result = 0
 
+        # 1 is always the moving players' perspective and -1 is always the opponent
+        self.states = []
+        # 1 is always the moving players' perspective and -1 is always the opponent
+        self.rewards = []
+        self.is_random = []
+
     def simulate(self) -> int:
         '''
         returns: int
@@ -77,11 +86,11 @@ class Game():
         while not self.game_over:
             self.computer_move()
 
-        if self.result != 0:
-            # punish losing players' last move
-            self.marker = -self.result
-            loser = self.__current_player()
-            loser.rewards[-1] = -5
+        # if self.result != 0:
+        #     # punish losing players' last move
+        #     self.marker = -self.result
+        #     loser = self.__current_player()
+        #     loser.store_transition(state=self.playfield.copy(), reward=-1)
 
         return self.result
 
@@ -106,20 +115,22 @@ class Game():
         player = self.__current_player()
         assert not player.human
 
-        state = self.playfield.copy()
-        action = player.choose_action(self.playfield)
+        action, is_random = player.choose_action(self.playfield)
         reward = self.play_col(action)
 
-        player.store_transition(state, action, reward)
-
+        self.is_random.append(is_random)
+        # states and rewards are always stored from the perspective of player 2
+        self.states.append(self.playfield.copy())
+        self.rewards.append(player.sign * reward)
 
     def play_col(self, j:int):
         '''returns the immediate reward from this move'''
         if not (j in self.get_available_moves()):
+            print('illegal move')
             # illegal move, other player wins
             self.game_over = True
             self.result = -self.marker
-            return -5
+            return -1
 
         i = self.col_height[j]
         self.playfield[i, j] = self.marker
@@ -137,7 +148,7 @@ class Game():
             # current player won
             self.game_over = True
             self.result = self.marker
-            return 5
+            return 1
 
         if not max(self.col_available):
             # draw

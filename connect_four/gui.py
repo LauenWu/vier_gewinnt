@@ -1,8 +1,8 @@
 import pyglet
 
-from connect_four.models import PolicyNet
+from connect_four.models import ValueNet
 from .game import Game
-from .player import HumanPlayer, SmartAgent, RandomAgent
+from .player import HumanPlayer, SmartAgent_2, RandomAgent
 from .constants import *
 import numpy as np
 import os
@@ -43,10 +43,8 @@ class Window(pyglet.window.Window):
                     color=self.colors[0], batch=self.circles_batch
                     )
 
-        model = PolicyNet()
-        model(np.ones((N,M,3)))
-        model.load_weights(os.path.join('data', 'weights.h5'))
-        self.game = Game(self.human_player, SmartAgent(model))
+        model = ValueNet()
+        self.game = Game(self.human_player, SmartAgent_2(model, debug=True))
 
     def on_draw(self):
         self.clear()
